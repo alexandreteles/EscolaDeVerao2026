@@ -13,7 +13,7 @@ author: Alexandre Teles <alexandre.teles@inctdd.org>
 4. Tokenizadores
 5. Treinando um tokenizador
 6. Embeddings
-7. Implementando um modelo de embeddings
+7. Análise de similaridade e relações vetoriais
 
 <!-- end_slide -->
 
@@ -230,6 +230,163 @@ Vocabulários que produzem tokens com distribuição Zipfiana vão apresentar me
 Treinando um tokenizador
 ==========
 
-[Clique aqui para abrir o notebook de treinamento de tokenizador](https://colab.research.google.com/drive/1qplja9Bm8Vc9JoNmiwKGK8hz1rfmguBy?usp=sharing)
+[Clique aqui para abrir o notebook de treinamento de tokenizador](https://colab.research.google.com/drive/1qplja9Bm8Vc9JoNmiwKGK8hz1rfmguBy)
 
 <!-- end_slide -->
+
+Embeddings
+==========
+
+# Tokens vs embeddings: qual a diferença?
+
+**Tokens** são unidades **discretas** (palavras/subpalavras/símbolos) escolhidas pelo tokenizador.  
+O modelo não processa texto diretamente, e sim uma sequência de **IDs inteiros** (um ID por token).
+
+**Embeddings** são vetores **contínuos** (números reais) que o modelo **aprende** para esses IDs.  
+Eles colocam tokens em um espaço geométrico onde relações como *semelhança* e *contexto* aparecem como **distâncias/direções**.
+
+Pipeline típico:
+
+```text
+texto → tokens → IDs → lookup na tabela de embeddings → vetores → rede neural
+```
+
+<!-- end_slide -->
+
+Embeddings
+==========
+
+# Exemplo conceitual
+
+O token vira ID, e o ID seleciona uma linha de uma matriz `E` (tabela de embeddings):
+
+```python
+import numpy as np
+
+# IDs de tokens (saída do tokenizador)
+token_ids = [1, 2, 2, 1]
+
+# Tabela de embeddings do modelo: (tamanho_do_vocab) × (dimensão)
+E = np.random.randn(10, 4)
+
+# Embedding de cada token da sequência (um vetor por ID)
+X = E[token_ids]  # shape: (len(token_ids), 4)
+```
+
+Em resumo:
+
+- token/ID = **rótulo** (discreto, definido pela tokenização)
+- embedding = **representação** (contínua, aprendida no treinamento)
+
+*(Embeddings são parâmetros do modelo: não existem “antes” do treinamento. E não se limitam a tokens — modelos também usam embeddings de posição, por exemplo.)*
+
+<!-- end_slide -->
+
+Embeddings
+==========
+
+# Vector Space (espaço vetorial)
+
+Um **espaço vetorial** é um “mundo” matemático onde cada item é representado por um **vetor de números reais**. Em NLP, normalmente pensamos em:
+
+```typst +render
+$ e(t) in RR^d $
+```
+
+*(`e(t)` é o embedding do token `t`, um vetor em `d` dimensões.)*
+
+A ideia central é: **significado vira geometria**.
+
+- Tokens com usos parecidos no corpus tendem a ter embeddings **próximos**.
+- Relações semânticas aparecem como **direções** e **regiões** do espaço (não como regras explícitas).
+- “Semelhança” é medida por operações simples, como **produto interno** ou **cosseno**:
+
+```typst +render
+$ sim(u, v) = (u cdot v) / (||u|| ||v||) $
+```
+
+<!-- end_slide -->
+
+Embeddings
+==========
+
+Como modelos usam isso na prática:
+
+1. **Lookup:** cada ID de token aponta para um vetor (uma linha da matriz de embeddings).
+2. **Composição contextual:** a rede (especialmente atenção) combina vetores para produzir representações que dependem do **contexto**.
+3. **Predição:** as camadas finais escolhem o próximo token porque certos vetores ficam mais alinhados (maior similaridade) com a saída do modelo.
+
+Intuição importante:
+
+- Um embedding “isolado” captura **tendências gerais** do token.
+- A representação **contextual** (saída de camadas do Transformer) captura o significado *na frase*.
+
+*(Mesmo sendo difícil visualizar em `d` grande (ex.: 768, 1024, ...), o modelo explora exatamente essas operações geométricas para organizar e recuperar significado.)*
+
+<!-- end_slide -->
+
+Embeddings
+==========
+
+# Positional embeddings (por que posição importa?)
+
+Se eu te der apenas os tokens `{homem, mordeu, cachorro}`, eu perdi algo essencial: **a ordem**.
+
+- “o **cachorro** mordeu o **homem**” ≠ “o **homem** mordeu o **cachorro**”
+- Sem posição, o modelo tende a enxergar um “**saco de palavras**” (bag of words).
+
+**Positional embeddings** resolvem isso dando a cada posição `i` na sequência um vetor `p_i` (na mesma dimensão do embedding do token). Em Transformers, a entrada em cada posição costuma ser a soma:
+
+```typst +render
+$ x_i = e(t_i) + p_i $
+```
+
+*(`e(t_i)` é o embedding do token na posição `i`, e `p_i` codifica “onde” ele está na sequência.)*
+
+O que isso “representa” na prática?
+
+- `p_i` não é “significado de palavra”; é **informação de posição**.
+- Mas ao ser combinado com `e(t_i)`, ele permite que a atenção aprenda padrões como:
+  - dependências locais (“adjetivo costuma vir perto do substantivo”)
+  - estrutura (início/fim, separação de frases, listas)
+  - relações de longo alcance (sujeito ↔ verbo, pares de parênteses, etc.)
+
+Observação: há várias formas de codificar posição (aprendida, senoidal, relativa, RoPE). A ideia central é sempre a mesma: **transformar ordem em vetores** para que o modelo possa usar geometria e atenção para interpretar sequência.
+
+<!-- end_slide -->
+
+Embeddings
+==========
+
+# Relações vetoriais: analogias e “direções de significado”
+
+No espaço vetorial, não olhamos apenas para “proximidade”. Muitas vezes, **diferenças entre vetores** capturam um atributo (uma “direção”):
+
+- `rainha ≈ rei - homem + mulher`
+- `Roma ≈ Paris - França + Itália`
+
+Em termos geométricos, você cria um vetor-consulta `q` e procura o token cujo embedding é mais similar a `q`:
+
+```typst +render
+$ q = e("rei") - e("homem") + e("mulher") $
+```
+
+e então:
+
+```typst +render
+$ t^* = op("arg max")_(t in V) sim(q, e(t)) $
+```
+
+*(ou seja: o token `t*` é o mais próximo de `q` por cosseno/produto interno.)*
+
+Dois detalhes importantes:
+
+- Essas analogias tendem a funcionar melhor com **embeddings estáticos** (ex.: word2vec).  
+- Em LLMs modernos, o “significado” mais fiel costuma estar em **representações contextuais** (o vetor do token *dentro* da frase). Ainda assim, a intuição de “direções semânticas” continua sendo uma ferramenta útil para entender **por que vizinhos no espaço vetorial parecem relacionados**.
+
+<!-- end_slide -->
+
+Análise de similaridade e relações vetoriais
+==========
+
+[Clique aqui para abrir o notebook de embeddings](https://colab.research.google.com/drive/1fMOJ3BRzMXJRKl8brcqPv_mxH-YX0I3o)
